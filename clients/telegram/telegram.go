@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -22,8 +23,8 @@ type Client struct {
 	client   http.Client
 }
 
-func New(host string, token string) Client {
-	return Client{
+func New(host string, token string) *Client {
+	return &Client{
 		host:     host,
 		basePath: newBasePath(token),
 		client:   http.Client{},
@@ -39,7 +40,7 @@ func (c Client) Updates(offset int, limit int) ([]Update, error) {
 	q.Add("offset", strconv.Itoa(offset))
 	q.Add("limit", strconv.Itoa(limit))
 
-	data, err := c.doRequest(getUpdatesMethod, q)
+	data, err := c.doRequest(http.MethodGet, getUpdatesMethod, q)
 	if err != nil {
 		return nil, err
 	}
@@ -58,37 +59,39 @@ func (c Client) SendMessage(chatID int, message string) error {
 	q.Add("chat_id", strconv.Itoa(chatID))
 	q.Add("text", message)
 
-	_, err := c.doRequest(sendMessageMethod, q)
+	_, err := c.doRequest(http.MethodGet, sendMessageMethod, q)
 	if err != nil {
 		return e.Wrap("can't send message", err)
 	}
 	return nil
 }
 
-func (c Client) doRequest(method string, query url.Values) (data []byte, err error) {
+func (c Client) doRequest(httpMethod, apiMethod string, query url.Values) (data []byte, err error) {
 	defer func() { err = e.WrapIfErr("can't do request", err) }()
 
 	u := url.URL{
 		Scheme: "https",
 		Host:   c.host,
-		Path:   path.Join(c.basePath, method),
+		Path:   path.Join(c.basePath, apiMethod), // /bot<token>/getUpdates и т.д.
 	}
 
-	req, err := http.NewRequest(method, u.String(), nil)
+	req, err := http.NewRequest(httpMethod, u.String(), nil)
 	if err != nil {
 		return nil, err
 	}
-	req.URL.RawQuery = query.Encode()
 
+	req.URL.RawQuery = query.Encode()
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	// опционально: проверка кода ответа
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
 	}
-	return body, nil
+
+	return io.ReadAll(resp.Body)
 }

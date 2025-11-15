@@ -1,22 +1,36 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
+
+	_ "github.com/mattn/go-sqlite3"
+
 	tgClient "telegram-bot/clients/telegram"
-	event_consumer "telegram-bot/consumer/event-consumer"
+	eventConsumer "telegram-bot/consumer/event-consumer"
 	"telegram-bot/events/telegram"
-	"telegram-bot/storage/files"
+	"telegram-bot/storage/sqlite"
 )
 
 const (
-	tgBotHost   = "api.telegram.org"
-	storagePath = "storage"
-	batchSize   = 100
+	tgBotHost         = "api.telegram.org"
+	sqliteStoragePath = "data/sqlite/storage.db"
+	batchSize         = 100
 )
 
 func main() {
-	storage := files.New(storagePath)
+	//storage := files.New(storagePath)
+
+	storage, err := sqlite.New(sqliteStoragePath)
+	if err != nil {
+		log.Fatalf("Error connect sqlite storage: %v", err)
+	}
+
+	err = storage.Init(context.TODO())
+	if err != nil {
+		log.Fatalf("Error initializing storage: %v", err)
+	}
 
 	eventsProcessor := telegram.New(
 		tgClient.New(tgBotHost, mustToken()),
@@ -25,7 +39,7 @@ func main() {
 
 	log.Println("Telegram bot started")
 
-	consumer := event_consumer.New(eventsProcessor, eventsProcessor, batchSize)
+	consumer := eventConsumer.New(eventsProcessor, eventsProcessor, batchSize)
 
 	if err := consumer.Start(); err != nil {
 		log.Fatal("Telegram bot service is stopped:", err)
